@@ -1,0 +1,61 @@
+#lang fsm
+;; → (void)
+;; Purpose: Print the integer pairs (points) in a 2D Cartesian plane.
+;; Note: All points below have integer coordinates.
+(define (print-natnums)
+  ;; natnum point → point
+  ;; Purpose: Print the `length` points of a segment of the vertical line
+  ;; going through `start`.
+  ;; The segment goes downward and starts from the point next to `start`.
+  ;; Return the last point.
+  (define (line-down length start)
+    (if (zero? length)
+        start
+        (let ((next (cons (car start) (sub1 (cdr start)))))
+          (begin
+            (displayln next)
+            (line-down (sub1 length) next)))))
+           
+  ;; The same as of `line-down`, but going to the right.
+  (define (line-right length start)
+    (if (zero? length)
+        start
+        (let ((next (cons (add1 (car start)) (cdr start))))
+          (begin
+            (displayln next)
+            (line-right (sub1 length) next)))))
+           
+  ;; The same as of `line-down`, but going upward.
+  (define (line-up length start)
+    (if (zero? length)
+        start
+        (let ((next (cons (car start) (add1 (cdr start)))))
+          (begin
+            (displayln next)
+            (line-up (sub1 length) next)))))
+           
+  ;; The same as of `line-down`, but going to the left.
+  (define (line-left length start)
+    (if (zero? length)
+        start
+        (let ((next (cons (sub1 (car start)) (cdr start))))
+          (begin
+            (displayln next)
+            (line-left (sub1 length) next)))))
+
+  ;; point natnum → point
+  ;; Purpose: Print the square whose left top corner is `left-top`
+  ;; and whose side length (the distance between corners) is `side`.
+  (define (square side left-top)
+    (line-left side (line-up side (line-right side (line-down side left-top)))))
+  
+  ;; natnum → (void)
+  ;; Purpose: Print squares starting from the `n`th square.
+  (define (printer n)
+    (if (= n +inf.0)
+        (void)
+        (begin
+          (square (add1 (* 2 n)) (cons (- n) (add1 n)))
+          (printer (add1 n)))))
+
+  (printer 0))
