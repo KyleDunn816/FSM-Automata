@@ -1,0 +1,401 @@
+#lang fsm
+
+#|
+The following definition makes proofs shorter.
+
+Definition.
+NDFAs M and M' are *equivalent* if their languages are equal.
+
+Theorem 1.
+For any NDFA M, (ndfa-start-only-out M) and M are equivalent.
+
+Proof.
+
+According to the definition of `ndfa-start-only-out`,
+(ndfa-start-only-out M) is M or M' (M with a new start state).
+Consider the latter case.
+
+If there is a computation in M producing a word w,
+it starts at (sm-start M),
+so there is a computation in M' producing w
+because there is the rule ((sm-start M') ε (sm-start M)).
+Therefore, ∀w∈Σ^*, w ∈ L(M) ⇒ w ∈ L(M').
+
+If there is a computation in M' producing a word w,
+it starts at (sm-start M'),
+so its first step uses the rule ((sm-start M') ε (sm-start M))
+(there are no other edges from (sm-start M')),
+so there is a computation in M producing w.
+Therefore, ∀w∈Σ^*, w ∈ L(M) ⇐ w ∈ L(M').
+
+Q.E.D.
+
+Theorem 2.
+For any NDFA M, the start state of (ndfa-start-only-out M)
+has no incoming edges.
+
+Proof.
+
+By the definition of `ndfa-start-only-out`.
+
+Q.E.D.
+
+Theorem 3.
+For any NDFA M, (ndfa-final-only-in M) and M are equivalent.
+
+Proof.
+
+According to the definition of `ndfa-final-only-in`,
+(ndfa-final-only-in M) is M or M' (M with a new final state F').
+Consider the latter case.
+
+If there is a computation in M producing a word w,
+it ends at state F ∈ (sm-finals M),
+so there is a computation in M' producing w
+because there is the rule (F ε F').
+Therefore, ∀w∈Σ^*, w ∈ L(M) ⇒ w ∈ L(M').
+
+If there is a computation in M' producing a word w,
+it ends at F',
+so its last step uses the rule (F ε F') for some F ∈ (sm-finals M)
+(there are no other edges into F'),
+so there is a computation in M producing w.
+Therefore, ∀w∈Σ^*, w ∈ L(M) ⇐ w ∈ L(M').
+
+Q.E.D.
+
+Theorem 4.
+For any NDFA M, (ndfa-final-only-in M) has exactly one final state,
+and this state has no outgoing edges.
+
+Proof.
+
+By the definition of `ndfa-final-only-in`.
+
+Q.E.D.
+
+Theorem 5.
+For any NDFA M, L((ndfa2regexp M)) = L(M).
+
+Proof.
+
+Consider the evaluation of (ndfa2regexp M).
+First, we define M' (`m` defined with `let` in the source code).
+By Theorems 1, 2, 3, 4, M' is equivalent to M,
+the start state of M' has no incoming edges,
+M' has exactly one final state,
+and this state has no outgoing edges.
+Define Z to be the start state of M'.
+Define F to be the final state of M'.
+
+Then we rip out all states of M' except Z and F.
+Note that for every state that we rip out,
+this operation produces an equivalent graph,
+cannot add an edge to Z,
+and cannot add an edge from F.
+
+In the result, Z may only have outgoing edges,
+and F may only have incoming edges.
+
+- If Z=F, there are no edges
+  (because there is no edge from F),
+  so L(M) = {ε}.
+- Suppose otherwise.
+  If there are no edges, then no computation is possible,
+  so L(M) = {}.
+  If there are edges, there is exactly one edge from Z to F
+  (`remove-multiple-edges` collapses edges to at most one edge).
+  Thus the language of the regular expression in this edge
+  is the language of the entire result.
+
+Q.E.D.
+
+|#
+
+;; L = empty_set
+(define EMPTY (make-ndfa '(S) '(a b) 'S '() '()))
+;; L = (aUb) (ab* U ba*)
+(define aUb-ba*Uab*
+  (make-ndfa
+   '(S A B C)
+   '(a b)
+   'S
+   '(B C)
+   '((S a A) (S b A) (A a B) (A b C) (B b B) (C a C))))
+;; L = b*
+(define b* (make-ndfa `(,DEAD S A)
+                      '(a b)
+                      'S
+                      '(A)
+                      `((S ,EMP A) (S a ,DEAD) (A b A))))
+
+;; ndfas for the modified `ndfa2regexp`
+;; L = ab
+(define ndfa-mod-start-final
+  (make-ndfa
+   '(Z A F)
+   '(a b c)
+   'Z
+   '(F)
+   '((Z a A) (A b F))))
+;; L = a(ca)*b
+(define ndfa-mod-final
+  (make-ndfa
+   '(Z A F)
+   '(a b c)
+   'Z
+   '(F)
+   '((Z a A) (A b F) (A c Z))))
+;; L = ab(cb)*
+(define ndfa-mod-start
+  (make-ndfa
+   '(Z A F)
+   '(a b c)
+   'Z
+   '(F)
+   '((Z a A) (A b F) (F c A))))
+;; L = ab(cab)*
+(define ndfa-mod
+  (make-ndfa
+   '(Z A F)
+   '(a b c)
+   'Z
+   '(F)
+   '((Z a A) (A b F) (F c Z))))
+;; L = 
+(define ndfa-mod-empty-word
+  (make-ndfa
+   '(A)
+   '(a b c)
+   'A
+   '(A)
+   '()))
+
+
+;; (listof edge) → regexp
+;; Purpose: Collapse the given edges into a regexp
+(define (collapse-edges loe)
+  (cond [(empty? loe) '()]
+        [(empty? (rest loe)) (second (first loe))]
+        [else (union-regexp (second (first loe))
+                            (collapse-edges (rest loe)))]))
+
+;; Tests for collapse-edges
+(check-equal? (collapse-edges '()) '())
+(check-equal? (collapse-edges `((S ,(singleton-regexp "a") S)))
+              (singleton-regexp "a"))
+(check-equal?
+ (collapse-edges `((A ,(singleton-regexp "a") A)
+                   (A ,(singleton-regexp "b") A)
+                   (A ,(empty-regexp) A)))
+ (union-regexp (singleton-regexp "a")
+               (union-regexp (singleton-regexp "b")
+                             (empty-regexp))))
+
+;; dgraph → dgraph
+;; Purpose: Collapse multiple edges between nodes
+;; Accumulator Invariant: g = the unprocessed graph
+(define (remove-multiple-edges g)
+  (if (empty? g)
+      '()
+      (let* [(curr-edge (first g))
+             (from-state (first curr-edge))
+             (to-state (third curr-edge))
+             (to-collapse (filter (λ (e) (and (eq? (first e) from-state)
+                                              (eq? (third e) to-state)))
+                                  g))
+             (remaining-g (filter (λ (e) (not (member e to-collapse))) g))]
+        (cons (list from-state (collapse-edges to-collapse) to-state)
+              (remove-multiple-edges remaining-g)))))
+
+;; Tests for remove-multiple-edges
+(check-equal? '() '())
+(check-equal?
+ (remove-multiple-edges `((S ,(singleton-regexp "a") A)
+                          (S ,(singleton-regexp "b") A)
+                          (A ,(singleton-regexp "a") A)))
+ `((S
+    ,(union-regexp (singleton-regexp "a") (singleton-regexp "b"))
+    A)
+   (A ,(singleton-regexp "a") A)))
+
+;; state dgraph → dgraph Purpose: Rip out given node from given graph
+;; Assume: Given node in given graph and g has no multiple edges between nodes
+(define (rip-out-node n g)
+  (let*
+      [(non (filter (λ (r) (and (not (eq? (third r) n))(not (eq? (first r) n)))) g))
+       (into-n (filter (λ (r) (and (eq? (third r) n) (not (eq? (first r) n)))) g))
+       (outof-n (filter (λ (r) (and (eq? (first r) n) (not (eq? (third r) n)))) g))
+       (self-edges (filter (λ (r) (and (eq? (first r) n) (eq? (third r) n))) g))]
+    (remove-multiple-edges
+     (append
+      non
+      (if (not (empty? self-edges))
+          (let [(se (first self-edges))]
+            (append-map
+             (λ (into-edge)
+               (map (λ (outof-edge)
+                      (list (first into-edge)
+                            (concat-regexp
+                             (second into-edge)
+                             (concat-regexp (kleenestar-regexp (second se))
+                                            (second outof-edge)))
+                            (third outof-edge)))
+                    outof-n))
+             into-n))
+          (append-map
+           (λ (into-edge)
+             (map (λ (outof-edge) (list (first into-edge)
+                                        (concat-regexp (second into-edge)
+                                                       (second outof-edge))
+                                        (third outof-edge)))
+                  outof-n))
+           into-n))))))
+;; (listof node) dgraph → dgraph
+;; Purpose: Rip out the given nodes from the given graph
+;; Assume: Given nodes in given graph and g has no multiple edges
+;; between nodes
+(define (rip-out-nodes lon g)
+  (foldr (λ (s g) (rip-out-node s g)) g lon))
+
+;; Tests for rip-out-nodes
+(check-equal? (rip-out-nodes '() `((S ,(singleton-regexp "a") A)
+                                   (A ,(singleton-regexp "b") B)))
+              `((S ,(singleton-regexp "a") A)
+                (A ,(singleton-regexp "b") B)))
+(check-equal?
+ (rip-out-nodes '(A B) `((S ,(singleton-regexp "a") A)
+                         (A ,(singleton-regexp "b") B)
+                         (B ,(singleton-regexp "b") C)))
+ `((S
+    ,(concat-regexp (singleton-regexp "a")
+                    (concat-regexp (singleton-regexp "b")
+                                   (singleton-regexp "b")))
+    C)))
+
+
+;; (listof ndfa-rule) → dgraph
+;; Purpose: Create a dgraph from the given ndfa
+(define (make-dgraph lor)
+  (map (λ (r) (if (eq? (second r) EMP)
+                  (list (first r) (empty-regexp) (third r))
+                  (list (first r)
+                        (singleton-regexp (symbol->string (second r)))
+                        (third r))))
+       lor))
+
+;; Tests for make-dgraph
+(check-equal? (make-dgraph '()) '())
+(check-equal?
+ (make-dgraph `((S ,EMP A) (S a ,DEAD) (A b A)))
+ (list (list 'S (empty-regexp) 'A)
+       (list 'S (singleton-regexp "a") 'ds)
+       (list 'A (singleton-regexp "b") 'A)))
+(check-equal?
+ (make-dgraph '((S a A) (S b A) (A a B) (A b C) (B b B) (C a C)))
+ (list (list 'S (singleton-regexp "a") 'A)
+       (list 'S (singleton-regexp "b") 'A)
+       (list 'A (singleton-regexp "a") 'B)
+       (list 'A (singleton-regexp "b") 'C)
+       (list 'B (singleton-regexp "b") 'B)
+       (list 'C (singleton-regexp "a") 'C)))
+
+;; state (listof ndfa-rule) → boolean
+;; Purpose: Whether `rules` contains a rule into `n`.
+(define (state-has-in n rules)
+  (ormap (lambda (r) (eq? n (third r))) rules))
+
+;; state (listof ndfa-rule) → boolean
+;; Purpose: Whether `rules` contains a rule out of `n`.
+(define (state-has-out n rules)
+  (ormap (lambda (r) (eq? n (first r))) rules))
+
+;; ndfa → ndfa
+;; Purpose: Create an ndfa equivalent to `m`
+;; such that there are no edges into its start state.
+(define (ndfa-start-only-out m)
+  (if (state-has-in (sm-start m) (sm-rules m))
+      (let [(new-start (gen-state (sm-states m)))]
+        (make-ndfa
+         (cons new-start (sm-states m))
+         (sm-sigma m)
+         new-start
+         (sm-finals m)
+         (cons (list new-start EMP (sm-start m)) (sm-rules m))))
+      m))
+
+;; ndfa → ndfa
+;; Purpose: Create an ndfa equivalent to `m`
+;; such that it has exactly one final state
+;; and there are no edges out of its final state.
+(define (ndfa-final-only-in m)
+  (let [(is-final-good
+         (and (eq? 1 (length (sm-finals m)))
+              (not (state-has-out (first (sm-finals m)) (sm-rules m)))))]
+    (if is-final-good
+        m
+        (let [(new-final (gen-state (sm-states m)))]
+          (make-ndfa
+           (cons new-final (sm-states m))
+           (sm-sigma m)
+           (sm-start m)
+           (list new-final)
+           (append
+            (map (λ (f) (list f EMP new-final)) (sm-finals m))
+            (sm-rules m)))))))
+
+;; ndfa → regexp Purpose: Create a regexp from the given ndfa
+;; Assume: Transition diagram of machine is connected digraph
+(define (ndfa2regexp m)
+  (let [(m (ndfa-final-only-in (ndfa-start-only-out m)))]
+    (let* [; intermediate states in `m`
+           (imstates (let [(end-states (cons (sm-start m) (sm-finals m)))]
+                       (filter (lambda (n) (not (member n end-states)))
+                               (sm-states m))))
+           (init-dgraph (make-dgraph (sm-rules m)))
+           (collapsed-dgraph
+            (rip-out-nodes imstates (remove-multiple-edges init-dgraph)))]
+      (if (empty? collapsed-dgraph)
+          (if (eq? (sm-start m) (first (sm-finals m)))
+              (empty-regexp)
+              (null-regexp))
+          (simplify-regexp (second (first collapsed-dgraph)))))))
+
+;; Tests for ndfa2regexp
+(define b*-regexp (ndfa2regexp b*))
+(define aUb-ba*Uab*-regexp (ndfa2regexp aUb-ba*Uab*))
+
+(check-accept? b* (gen-regexp-word b*-regexp))
+(check-accept? aUb-ba*Uab* (gen-regexp-word aUb-ba*Uab*-regexp)
+               (gen-regexp-word aUb-ba*Uab*-regexp)
+               (gen-regexp-word aUb-ba*Uab*-regexp)
+               (gen-regexp-word aUb-ba*Uab*-regexp))
+
+;; Tests for modified `ndfa2regexp`
+(define regexp-mod-start-final (ndfa2regexp ndfa-mod-start-final))
+(define regexp-mod-final (ndfa2regexp ndfa-mod-final))
+(define regexp-mod-start (ndfa2regexp ndfa-mod-start))
+(define regexp-mod (ndfa2regexp ndfa-mod))
+(define regexp-mod-empty-word (ndfa2regexp ndfa-mod-empty-word))
+
+(check-accept? ndfa-mod-start-final
+               (gen-regexp-word regexp-mod-start-final)
+               (gen-regexp-word regexp-mod-start-final)
+               (gen-regexp-word regexp-mod-start-final)
+               (gen-regexp-word regexp-mod-start-final))
+(check-accept? ndfa-mod-final
+               (gen-regexp-word regexp-mod-final)
+               (gen-regexp-word regexp-mod-final)
+               (gen-regexp-word regexp-mod-final)
+               (gen-regexp-word regexp-mod-final))
+(check-accept? ndfa-mod-start
+               (gen-regexp-word regexp-mod-start)
+               (gen-regexp-word regexp-mod-start)
+               (gen-regexp-word regexp-mod-start)
+               (gen-regexp-word regexp-mod-start))
+(check-accept? ndfa-mod
+               (gen-regexp-word regexp-mod)
+               (gen-regexp-word regexp-mod)
+               (gen-regexp-word regexp-mod)
+               (gen-regexp-word regexp-mod))
+(check-accept? ndfa-mod-empty-word '())
