@@ -1,0 +1,232 @@
+#lang fsm
+
+#|
+Grade: B
+
+Your code assumes that all final states are reachable states.
+|#
+
+(define a*Ub*-rg ;; L = a* U b*
+  (make-rg '(S A B) '(a b)
+           `((S ,ARROW ,EMP) (S ,ARROW aA) (S ,ARROW bB)
+                             (S ,ARROW a) (S ,ARROW b) (A ,ARROW aA)
+                             (A ,ARROW a) (B ,ARROW bB) (B ,ARROW b))
+           'S))
+
+;; Name: EVEN-A-ODD-B
+;;
+;; Σ: '(a b)
+;; Tests for EVEN-A-ODD-B
+;;Even As Odd amount of Bs
+(define EVEN-A-ODD-B
+  (make-dfa '(S M N P)
+            '(a b)
+            'S
+            '(N)
+            '((S a P) (S b N)
+                      (M a N) (M b P)
+                      (N a M) (N b S)
+                      (P a S) (P b M))
+            'no-dead
+            #:accepts '((b) (a a b) (a a a b a b b))
+            #:rejects '(() (a b b a) (b a b b a a) (a b)
+                           (a b b b b) (b a b b a a b))))
+
+;; (listof dfa-rule) (listof state) → (listof rg-rule)
+;; Purpose: Generate production rules for the given
+;; dfa-rules and the given final states
+(define (mk-prod-rules mrules mfinals)
+  (append-map
+   (λ (r)
+     (if (not (member (third r) mfinals))
+         (list (list (first r) ARROW (los->symbol (rest r))))
+         (list (list (first r) ARROW (second r))
+               (list (first r) ARROW (los->symbol (rest r))))))
+   mrules))
+
+
+;; Tests for mk-prod-rules
+(check-equal? (mk-prod-rules '() '(F G)) '())
+(check-equal? (mk-prod-rules '((S a F) (S b R)
+                                       (R a G) (R b R)
+                                       (G a G) (G b G))
+                             '(F G))
+              '((S -> a) (S -> aF) (S -> bR)
+                         (R -> a) (R -> aG) (R -> bR)
+                         (G -> a) (G -> aG) (G -> b) (G -> bG)))
+
+
+
+
+;; dfa → rg
+;; Purpose: Build a rg for the language of the given dfa
+;; Assume: dfa states are represented by a single capital letter
+(define (dfa2rg m)
+  (let* [(nts (sm-states m))
+         (sigma (sm-sigma m))
+         (startnt (sm-start m))
+         (prules (if (member (sm-start m) (sm-finals m))
+                     (cons (list (sm-start m) ARROW EMP)
+                           (mk-prod-rules (sm-rules m) (sm-finals m)))
+                     (mk-prod-rules (sm-rules m) (sm-finals m))))]
+    (make-rg nts sigma prules startnt)))
+
+
+;; Tests for dfa2rg
+
+(define EA-OB-rg (dfa2rg EVEN-A-ODD-B))
+
+(check-reject? EVEN-A-ODD-B '(a b) '(a a b a))
+(check-not-derive? EA-OB-rg '(a b) '(a a b a))
+(check-accept? EVEN-A-ODD-B '(b) '(b a a b b))
+(check-derive? EVEN-A-ODD-B '(b) '(b a a b b))
+
+;;Quiz problem below:
+;;Consider the dfa displayed
+(define quiz-dfa(make-dfa `(S U V T D)
+                          '(a b)
+                          'S
+                          '(S V T)
+                          `((S a U)
+                            (S b U)
+                            (U a V)
+                            (U b T)
+                            (V a D)
+                            (V b D)
+                            (T a D)
+                            (T b U)
+                            (D a D)
+                            (D b D))
+                          'no-dead))
+
+;;using dfa2rg to build a regular grammar for the language the machine decides results in
+;;(S -> ,EMP) (S -> aU) (S -> bU) (U -> b)
+;;(U -> a) (U -> bT) (U -> aV) (T -> bU)
+;;Italiziced: (U -> aV) (V -> aD) (V -> bD) (T -> aD) (D -> aD) (D -> bD)
+;;Observe that the production rules in italics can never be part of a derivation for a word in the language
+;;of the regular grammar. It is, therefore, unecessary to generate such production rules. refine, dfa2rg so that it builds a grammar without unecessary
+;;production rules. Use grammar-testequiv to validate the refined constructor.
+
+(define quiz-dfa-rg (dfa2rg quiz-dfa))
+
+(check-reject? quiz-dfa '(a b b) '(a b a) '(a a a) '(a b b b b) '(a a a) '(b b b b b))
+(check-not-derive? quiz-dfa-rg '(a b b) '(a a b a) '(a a a) '(b b b b b))
+(check-accept? quiz-dfa '() '(a b) '(a b b b) '(a b b a) '(a b b b b a) '(b b) '(b b b b))
+(check-derive? quiz-dfa-rg '(a b) '(a b b b) '(a b b a) '(a b b b b a) '(b b) '(b b b b))
+
+
+
+
+
+
+;;my version of dfa2rg
+
+;; state (listof rules) -> (listof states)
+;;finds all of the states that can reach the given state.
+(define (find-reachable state reverse-rules)
+  (let* [(predecessor-rules (filter (λ (r)  (equal? (first r) state)) reverse-rules))
+         (new-rules (filter (λ (r) (not (member r predecessor-rules))) reverse-rules))
+         (predecessors (remove-duplicates  (map (λ (r) (third r)) predecessor-rules)))
+         (states-reachable-to-final (remove-duplicates
+                                     (append predecessors
+                                             (append-map (lambda (s) (find-reachable s new-rules))
+                                                         predecessors))))]
+    states-reachable-to-final))
+
+
+;;tests
+(check-equal? (find-reachable 'A '((A b B)
+                                   (B a C)
+                                   (C a D))) '(B C D))
+
+(check-equal? (find-reachable 'A '((A b B)
+                                   (B a C)
+                                   (C b B)
+                                   (C a D))) '(B C D))
+
+(check-equal? (find-reachable 'A '((A b B)
+                                   (B b B)
+                                   (B a C)
+                                   (C a D))) '(B C D))
+
+(check-equal? (find-reachable 'A '((A b B)
+                                   (B b B)
+                                   (B a C)
+                                   (B c F)
+                                   (B d E)
+                                   (C a D)
+                                   (F a A))) '(B C F E D A))
+
+
+
+;;(listof final-states) (listof rules) -> (listof states)
+;;finds all of the reachable states given final states
+(define (find-all-reachable-states finals reverse-rules)
+  (remove-duplicates (append-map (λ (f) (find-reachable f reverse-rules)) finals)))
+
+(check-equal? (find-all-reachable-states '(A B) '((S a A)
+                                                  (S b A)
+                                                  (A c B)
+                                                  (B d S)
+                                                  (B a C))) '(B S C A))
+
+(check-equal? (find-all-reachable-states '(C E) '((S a A) 
+                                                  (S c A)
+                                                  (A b B)
+                                                  (A c B)
+                                                  (C a A)
+                                                  (C c A)
+                                                  (D b D)
+                                                  (D c D)
+                                                  (D a B)
+                                                  (B a E)
+                                                  (B b E)
+                                                  (E c A)
+                                                  (E d A)
+                                                  (B c C)
+                                                  (B d C))) '(A B E C))
+                                                  
+
+;; dfa -> (listof states)
+;;finds all of the reachable states from the final states given a dfa.
+(define (states-reach-final m)
+  (let*[(finals (sm-finals m))
+        (reverse-rules
+         #|
+            Why not (map reverse (sm-rules))?
+         |#
+         (map (λ (r) (list (third r) (second r) (first r))) (sm-rules m)))
+        (all-reachable-states
+         #|
+            What is there are unrechable final states?
+         |#
+         (find-all-reachable-states finals reverse-rules))]
+    (remove-duplicates (append (sm-finals m) all-reachable-states))))
+
+
+
+;; dfa → rg
+;; Purpose: Build a rg for the language of the given dfa but will removes the extra rules that will never occur.
+;; Assume: dfa states are represented by a single capital letter
+(define (dfa2rg-updated m)
+  (let* [(nts
+          ;; Good!
+          (states-reach-final m)) 
+         (sigma (sm-sigma m))
+         (startnt (sm-start m))
+         (filtered-rules (filter (λ (r) (and (member (first r) nts)
+                                             (member (third r) nts)))
+                                 (sm-rules m)))
+         (prules (if (member (sm-start m) (sm-finals m))
+                     (cons (list startnt ARROW EMP)
+                           (mk-prod-rules filtered-rules (sm-finals m)))
+                     (mk-prod-rules filtered-rules (sm-finals m))))]
+    (make-rg nts sigma prules startnt)))
+
+;;test
+(define quiz-dfa-rg-updated (dfa2rg-updated quiz-dfa))
+(check-reject? quiz-dfa '(a b b) '(a b a) '(a a a) '(a b b b b) '(a a a) '(b b b b b))
+(check-not-derive? quiz-dfa-rg-updated '(a b b) '(a a b a) '(a a a) '(b b b b b))
+(check-accept? quiz-dfa '() '(a b) '(a b b b) '(a b b a) '(a b b b b a) '(b b) '(b b b b))
+(check-derive? quiz-dfa-rg-updated '(a b) '(a b b b) '(a b b a) '(a b b b b a) '(b b) '(b b b b))
+(check-equal? (grammar-testequiv quiz-dfa-rg quiz-dfa-rg-updated 50) #t)
