@@ -1,0 +1,341 @@
+#lang fsm
+
+#|
+Grade
+  Q6: A
+  Good counter example!
+  
+  Q7: C-
+
+  There is a major bug. Consider:
+
+  (define M (make-dfa '(S A C D E)
+                      '(a b)
+                      'S
+                      '(D)
+                      `((S a A) (A a C) (C a D) (D a E)
+                        (S b E) (A b E) (C b E) (D b E)
+                        (E a E) (E b E))
+                      'no-dead))
+
+  (define MP (PREFIX M))
+
+  The transition diagrams are:
+  
+  .
+
+  .
+
+  Observe that the only word accepted by M is (a a a).
+  The prefixes are: (), (a), (a a), and (a a a).
+
+  MP does not accept () nor a.
+|#
+
+;; Quiz 6 by Christopher Bernal, Kyle Dunn, and Jonathan Wallace
+
+;;
+;;    PROBLEM 9
+;;
+
+;; L = ab*
+(define ab* (make-ndfa '(S A) '(a b) 'S '(A)
+                       '((S a A) (A b A))))
+;; L = a(a U ab)b*
+(define a-aUb-b* (make-ndfa '(Z H B C D F)
+                            '(a b)
+                            'Z
+                            '(F)
+                            `((Z a H)
+                              (Z a B) (H a D) (D ,EMP F)
+                              (B a C) (C b F) (F b F))))
+;; L = aab*
+(define aab* (make-ndfa '(W X Y) '(a b) 'W '(Y)
+                        '((W a X) (X a Y) (Y b Y))))
+;; L = a*
+(define a* (make-dfa '(S D)
+                     '(a b)
+                     'S
+                     '(S)
+                     '((S a S) (S b D) (D a D) (D b D))
+                     'no-dead))
+
+
+
+
+;; Question 9
+;; A computer whiz claims to have a better implementation for kstar-fsa:
+;; is the computer whiz correct? Prove or disprove the claim made.
+;; ndfa -> ndfa
+(define (kstar-fsa-whiz M)
+  (let* [(new-start (sm-start M))
+         (new-sigma (sm-sigma M))
+         (new-states (sm-states M))
+         (new-finals (if (member new-start (sm-finals M))
+                         (sm-finals M)
+                         (cons new-start (sm-finals M))))
+         (new-rules (append (sm-rules M)
+                            (map (λ (f) (list f EMP new-start))
+                                 (sm-finals M))))]
+    (make-ndfa new-states
+               new-sigma
+               new-start
+               new-finals
+               new-rules)))
+
+;test for kstar-fsa-whiz
+(define a-aUb-b*- (kstar-fsa-whiz a-aUb-b*))
+(define ab*- (kstar-fsa-whiz ab*))
+(check-reject? a-aUb-b*- '(b b b) '(a b a b a a a a))
+(check-accept? a-aUb-b*- '() '(a a a a b b b b) '(a a b a a b b a a))
+(check-equal? (sm-testequiv? a-aUb-b*- (sm-kleenestar a-aUb-b*)) #t)
+(check-reject? ab*- '(b) '(b b b))
+(check-accept? ab*- '() '(a a a a) '(a b a b b a b b b))
+(check-equal? (sm-testequiv? ab*- (sm-kleenestar ab*)) #t)
+
+;; Original kstar-fsa
+;; ndfa → ndfa
+;; Purpose: Construct ndfa for the Kleene star of given ndfa
+(define (kstar-fsa M)
+  (let* [(new-start (gen-state (sm-states M)))
+         (new-sigma (sm-sigma M))
+         (new-states (cons new-start (sm-states M)))
+         (new-finals (cons new-start (sm-finals M)))
+         (new-rules (cons (list new-start EMP (sm-start M))
+                          (append (sm-rules M)
+                                  (map (λ (f) (list f EMP new-start))
+                                       (sm-finals M)))))]
+    (make-ndfa new-states new-sigma new-start new-finals new-rules)))
+
+;; Tests for kstar-fsa
+(define a-aUb-b*-* (kstar-fsa a-aUb-b*))
+(define ab*-* (kstar-fsa ab*))
+(check-reject? a-aUb-b*-* '(b b b) '(a b a b a a a a))
+(check-accept? a-aUb-b*-* '() '(a a a a b b b b) '(a a b a a b b a a))
+(check-equal? (sm-testequiv? a-aUb-b*-* (sm-kleenestar a-aUb-b*)) #t)
+(check-reject? ab*-* '(b) '(b b b))
+(check-accept? ab*-* '() '(a a a a) '(a b a b b a b b b))
+(check-equal? (sm-testequiv? ab*-* (sm-kleenestar ab*)) #t)
+
+
+;; this should accept words that contains one C at the end of the list. with the alphabet a,b,c,d.
+(define CONTAINS-C (make-ndfa '(S C) '(a b c d) 'S '(C) '((S a S)
+                                                          (S b S)
+                                                          (S c C)
+                                                          (S d S)
+                                                          )))
+
+(check-accept? CONTAINS-C '(a b c) '(a b c) '(a a a a a a a a b b b b b b b c))
+(check-reject? CONTAINS-C '(a b c d) '(c c c c c) '(a b d) '(c b a))
+
+
+#|
+
+  Good!
+
+|#
+(define whiz-ans (kstar-fsa-whiz CONTAINS-C))
+(define reg-kleene-ans (kstar-fsa CONTAINS-C))
+(check-accept? whiz-ans '(a b c a b c a b c) '(a b d) '(c) '() '(a b c c c c c)) ;; these machines does not accept the same inputs '(a b d) should not be an accepted expression 
+(check-accept? reg-kleene-ans '(a b c a b c a b c) '(c) '() '(a b c c c c c c))
+(check-reject? reg-kleene-ans '(a b d))
+
+;; PROOF BY CONTRADICTION
+
+#|
+L = CONTAINS-C
+M = reg-kleene-ans
+ (make-ndfa '(A S C) '(a b c d) 'A '(A C) '((A ε S) (S a S) (S b S) (S c C) (S d S) (C ε A)))
+For brevity, (make-ndfa K Σ S F δ)
+N = whiz-ans
+ (make-ndfa '(S C) '(a b c d) 'S '(S C) '((S a S) (S b S) (S c C) (S d S) (C ε S)))
+For brevity, (make-ndfa K' Σ' S' F' δ')
+
+L(M) = {w | w contains only one c at the end of the word}
+L(N) = {w | w contains only one c at the end of the word}
+  
+w = '(a b d)
+
+w is not a valid word in L, because it does not contain one c at the end of the word.
+
+Prove that L(M) != L(N).
+
+Assume L(M) = L(N).
+
+Assume w ∈ L(M).
+This means that:
+  (w P) ⊢*M, where P ∈ F.
+Consuming w creates this:
+  (EMP A) ⊢M (a S) ⊢M (b S) ⊢M (d S)
+As shown, w ends up in state S, and by construction of M, S is not a state contained in F, the final states of M.
+Therefore, w ∉ L(M).
+
+Assume w ∈ L(N).
+This means that:
+ (w P) ⊢*N, where P ∈ F'.
+Consuming w creates this:
+ (a S) ⊢N (b S) ⊢N (d S)
+As shown, w ends up in state S, and by construction of N, S is a state contained in F', the final states of N.
+Therefore, w ∈ L(N).
+
+Since w is accepted in L(N) and not accepted in L(M), this means that L(N) does not equal L(M) and we have a contradiction.
+Furthermore, since w is not a valid word in L, the whizs' implementation is incorrect. 
+|#
+
+
+
+
+;;
+;;       PROBLEM 16
+;;
+
+
+
+;;dfa -> dfa
+;;Purpose: Construct a DFA for PREFIX(L(M)).
+(define (PREFIX M)
+  (let [(new-states (sm-states M))
+        (new-sigma (sm-sigma M))
+        (new-start (sm-start M))
+        (new-rules (sm-rules M))
+        (new-finals
+         (let [(finals (sm-finals M))]
+           (remove-duplicates
+            (append
+             finals
+
+             #|
+                There is a bug. This only identifies states that are one step
+                away from a final state.
+             |#
+             (append-map (lambda (rule)
+                           (if (member (third rule) finals)
+                               (list (first rule))
+                               '()))
+                         (sm-rules M))))))]
+    (make-dfa new-states new-sigma new-start new-finals new-rules)))
+
+
+
+;;tests for the PREFIX.
+
+(define DFA0
+  (make-dfa
+   `(S O F)
+   '(a b c)
+   'S
+   '(F)
+   `((S c S)
+     (S a O)
+     (O b F))))
+
+(check-equal? (sm-apply DFA0 '(a b)) 'accept)
+(check-equal? (sm-apply DFA0 '(c a b)) 'accept)
+(check-equal? (sm-apply DFA0 '(c c a b)) 'accept)
+(check-equal? (sm-apply DFA0 '(c c a)) 'reject)
+(check-equal? (sm-apply DFA0 '(b)) 'reject)
+(check-equal? (sm-apply DFA0 '()) 'reject)
+
+(define PREFIX-DFA0 (PREFIX DFA0))
+
+(check-equal? (sm-apply PREFIX-DFA0 '(a b)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA0 '(c a b)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA0 '(c c a b)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA0 '(a)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA0 '(c a)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA0 '(c c a)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA0 '(c c)) 'reject)
+(check-equal? (sm-apply PREFIX-DFA0 '()) 'reject)
+
+(define DFA1
+  (make-dfa
+   `(S F O)
+   '(a b c)
+   'S
+   '(F)
+   `((S a F)
+     (F b O)
+     (O c S))))
+
+(check-equal? (sm-apply DFA1 '(a)) 'accept)
+(check-equal? (sm-apply DFA1 '(a b c a)) 'accept)
+(check-equal? (sm-apply DFA1 '(b)) 'reject)
+(check-equal? (sm-apply DFA1 '()) 'reject)
+(check-equal? (sm-apply DFA1 '(c)) 'reject)
+(check-equal? (sm-apply DFA1 '(b c)) 'reject)
+(check-equal? (sm-apply DFA1 '(b c a)) 'reject)
+
+(define PREFIX-DFA1 (PREFIX DFA1))
+
+(check-equal? (sm-apply PREFIX-DFA1 '(a)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA1 '(a b c a)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA1 '()) 'accept)
+(check-equal? (sm-apply PREFIX-DFA1 '(a b c)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA1 '(b)) 'reject)
+(check-equal? (sm-apply PREFIX-DFA1 '(b c)) 'reject)
+(check-equal? (sm-apply PREFIX-DFA1 '(a b c a b c a b c a)) 'accept)
+(check-equal? (sm-apply PREFIX-DFA1 '(a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c a b c)) 'accept)
+
+
+;; dfa -> word
+;; generates a word in the language
+(define (generate-lang M)
+  (gen-regexp-word (fsa->regexp M)))
+ 
+;;proof
+
+#|
+Definition.
+Let M = (make-dfa S Σ Z F δ) be a DFA.
+Define PREFIX(M) to be (make-dfa S Σ Z F' δ)
+
+   The problem is that a prefix may have a length longer than 1.
+where F' = F ∪ {Q | ∃a∈Σ, δ(Q, a)∈F}.
+
+Theorem.
+Let M = (make-dfa S Σ Z F δ) be a DFA.
+Define M' to be PREFIX(M). Then L(M') = PREFIX(L(M)).
+
+Proof.
+∀x∈Σ*, x ∈ PREFIX(L(M)) ⇔ x ∈ L(M').
+
+Let x ∈ PREFIX(L(M)).
+Then there is a ∈ Σ∪{ε} such that xa ∈ L(M).
+
+Suppose that a∈Σ.
+Then it is valid that
+((xa) Z) ⊢*_M ((a) Q') ⊢_M (() Q) for some Q'∈S and Q∈F.
+By construction of M, Q'∈F'. Then there is a valid computation where
+((x) Z) ⊢*_M' (() Q').
+Then x ∈ L(M').
+
+Suppose that a=ε. Then x ∈ L(M).
+Then it is valid that
+((x) Z) ⊢*_M (() Q) for some Q∈F.
+By construction of M', Q∈F'. The computation above is also valid in M'.
+Then x ∈ L(M').
+
+Therefore, x ∈ L(M').
+
+Let x ∈ L(M'). Then there is a valid computation where
+((x) Z) ⊢*_M' (() Q') for some Q'∈F'.
+By construction of M', Q'∈F or there is a∈Σ such that δ(Q', a)∈F.
+
+Suppose that Q'∈F, then above x is also valid in M.
+Then x ∈ L(M). Then xa ∈ L(M) for a=ε. Then x ∈ PREFIX(L(M)).
+
+Suppose that there is a∈Σ such that δ(Q', a)∈F.
+((xa) Z) ⊢*_M' ((a) Q') ⊢_M' (() Q) for some Q∈F.
+above is also valid in M.
+Then xa ∈ L(M). Then x ∈ PREFIX(L(M)).
+
+Therefore, x ∈ PREFIX(L(M)).
+|#
+
+
+
+
+
+
+
+
