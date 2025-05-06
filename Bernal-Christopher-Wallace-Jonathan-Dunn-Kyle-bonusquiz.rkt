@@ -1,0 +1,256 @@
+#lang fsm
+
+#|
+Grade: A
+
+Nice!
+
+|#
+
+;; Problem: Design and implement a CSG for L = a^n b^n c^n d^n.
+
+;; Syntactic Categories
+;; S: generated words in L
+;; A, J: Promise to generate an a in the context of AJ
+;; B, I: Promise to generate a b in the context of BI
+;; C, H: Promise to generate a c in the context of CH
+;; D, G: Promise to generate a d in the context of DG
+
+(define anbncndn-csg
+  (make-csg '(S A B C D G H I J)
+            '(a b c d)
+            `((S ,ARROW ABCDS)
+              (S ,ARROW G)
+              (BA ,ARROW AB)
+              (CA ,ARROW AC)
+              (CB ,ARROW BC)
+              (DA ,ARROW AD)
+              (DB ,ARROW BD)
+              (DC ,ARROW CD)
+              (G ,ARROW H)
+              (DG ,ARROW Gd)
+              (CH ,ARROW Hc)
+              (H ,ARROW I)
+              (BI ,ARROW Ib)
+              (I ,ARROW J)
+              (AJ ,ARROW Ja)
+              (J ,ARROW ,EMP))
+            'S))
+
+(check-equal? (grammar-derive anbncndn-csg '())
+              '(S -> G -> H -> I -> J -> ε))
+
+(check-equal? (grammar-derive anbncndn-csg '(a a b b c c d d))
+              '(S
+                ->
+                ABCDS
+                ->
+                ABCDABCDS
+                ->
+                ABCADBCDS
+                ->
+                ABCABDCDS
+                ->
+                ABCABCDDS
+                ->
+                ABACBCDDS
+                ->
+                ABABCCDDS
+                ->
+                AABBCCDDS
+                ->
+                AABBCCDDG
+                ->
+                AABBCCDGd
+                ->
+                AABBCCGdd
+                ->
+                AABBCCHdd
+                ->
+                AABBCHcdd
+                ->
+                AABBHccdd
+                ->
+                AABBIccdd
+                ->
+                AABIbccdd
+                ->
+                AAIbbccdd
+                ->
+                AAJbbccdd
+                ->
+                AJabbccdd
+                ->
+                Jaabbccdd
+                ->
+                aabbccdd))
+
+;; (listof (N ∪ Σ) → Boolean
+;; Purpose: Determine if loop invariant holds for the given yield
+(define (anbncndn-inv yield)
+  (and (equal-num-abcd? yield)
+       (implies (member 'S yield) (S-INV yield))
+       (implies (member 'G yield) (G-INV yield))
+       (implies (member 'H yield) (H-INV yield))
+       (implies (member 'I yield) (I-INV yield))
+       (implies (member 'J yield) (J-INV yield))
+       (implies (no-nt? yield) (in-lang? yield))))
+
+;; Invariant for the S state
+(define (S-INV yield) (eq? (last yield) 'S))
+
+;; Invariant for the G state (Only d’s right of G)
+(define (G-INV yield)
+  (= (count (lambda (x) (not (eq? 'd x)))
+            (rest (dropf yield (lambda (x) (not (eq? 'G x))))))
+     0))
+
+;; Invariant for the H state (only d's and c's right of H)
+(define (H-INV yield)
+  (let* ([ds-and-cs (rest (dropf yield
+                                 (lambda (x) (not (eq? 'H x)))))]
+         [ds (dropf ds-and-cs (lambda (x) (eq? x 'c)))])
+    (andmap (lambda (x) (eq? x 'd)) ds)))
+
+;; Invariant for the I state (only d's and c's and b's right of I)
+(define (I-INV yield)
+  (let* ([ds-cs-bs (rest (dropf yield (lambda (x) (not (eq? 'I x)))))]
+         [ds-and-cs (dropf ds-cs-bs (lambda (x) (eq? 'b x)))]
+         [ds (dropf ds-and-cs (lambda (x) (eq? x 'c)))])
+    (andmap (lambda (x) (eq? 'd x)) ds)))
+
+;; Invariant for the J state (only a's b's c's and d's to the right of J)
+(define (J-INV yield)
+  (let* ([ds-cs-bs-as (rest (dropf yield (lambda (x) (not (eq? 'J x)))))]
+         [ds-cs-bs (dropf ds-cs-bs-as (lambda (x) (eq? 'a x)))]
+         [ds-cs (dropf ds-cs-bs (lambda (x) (eq? x 'b)))]
+         [ds (dropf ds-cs (lambda (x) (eq? x 'c)))])
+    (andmap (lambda (x) (eq? 'd x)) ds)))
+
+;; Determine if the yield is in the language
+(define (in-lang? yield)
+  (let* ([as (takef yield (lambda (x) (eq? 'a x)))]
+         [bs-cs-ds (dropf yield (lambda (x) (eq? 'a x)))]
+         [bs (takef bs-cs-ds (lambda (x) (eq? 'b x)))]
+         [cs-ds (dropf bs-cs-ds (lambda (x) (eq? 'b x)))]
+         [cs (takef cs-ds (lambda (x) (eq? 'c x)))]
+         [ds (dropf cs-ds (lambda (x) (eq? 'c x)))])
+    (= (length as) (length bs) (length cs) (length ds))))
+
+
+;; Determine if the word has equal number of as bs cs and ds
+(define (equal-num-abcd? word)
+  (= (+ (count (lambda (x) (eq? 'A x)) word)
+        (count (lambda (x) (eq? 'a x)) word))
+     (+ (count (lambda (x) (eq? 'B x)) word)
+        (count (lambda (x) (eq? 'b x)) word))
+     (+ (count (lambda (x) (eq? 'C x)) word)
+        (count (lambda (x) (eq? 'c x)) word))
+     (+ (count (lambda (x) (eq? 'D x)) word)
+        (count (lambda (x) (eq? 'd x)) word))))
+
+;; Checks if there are no nonterminals in the yield
+(define (no-nt? yield)
+  (andmap (lambda (x) (member x (grammar-sigma anbncndn-csg))) yield))
+
+;; Tests
+(check-equal? (anbncndn-inv '(A A a a B B b b C C c c D D d d))
+              #t)
+(check-equal? (anbncndn-inv '(A A a a B B b b C C c c D D d))
+              #f)
+(check-equal? (anbncndn-inv '(A A a a B B b b C C c c D d d))
+              #f)
+(check-equal? (anbncndn-inv '(a a b b c c d d))
+              #t)
+(check-equal? (anbncndn-inv '(A A B B C C D D))
+              #t)
+(check-derive? anbncndn-csg '(a b c d) '(a a b b c c d d) '())
+;(check-not-derive? anbncndn-csg '(a) '(a b) '(a b c) '(a a b b))
+
+
+
+;; PROOF
+#|
+  Proof by induction on n = number of derivation steps
+ Base case:
+   At the beginning of the derivation, yield = S.
+   S-INV holds a S as its rightmost element of the yield and the number of
+   As, as, Bs, bs, Cs, cs, Ds, and ds are all 0 and all other implications are true.
+Inductive step:
+   Assume: INV holds for n=k
+   Show: INV holds for n=k + 1
+   S -> EMPTY:
+     By inductive hypothesis INV holds because applying this rule
+     means that the number of As, as, Bs, bs, Cs, cs, Ds, and ds are all 0 and
+     (implies (no-nt? yield) (in-lang? yield)) holds and
+     all other implications are true
+   S -> ABCDS:
+     By inductive hypothesis INV holds because applying this rule
+     means that the number of As, as, Bs, bs, Cs, cs, Ds, and ds are equal and
+     S ends the yield and
+     all other implications are true
+   BA -> AB, CB -> BC, CA -> AC, DA -> AD, DB -> BD, DC -> CD: (swaps)
+     By inductive hypothesis INV holds because applying this rule
+     means that only the ordering our nonterminals change
+   S -> G:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d| and
+     everything to the right of G is d and
+     all other implications are true
+   G -> H:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d| and
+     everything to the right of H are ds and cs and
+     all other implications are true
+   H -> I:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d|and
+     everything to the right of I are ds, cs, and bs, and
+     all other implications are true
+   I -> J:
+     By inductive hypothesis INV holds because applying this rule
+     means that the number of |A & a|=|B & b|=|C & c| = |D & d| and
+     everything to the right of J are as, bs, cs, and ds, and
+     all other implications are true
+   J -> EMPTY:
+     After performing this rule the amount of as, bs, cs and ds are equal,
+     The yield is comprised of a^+ b^+ c^+ d^+
+     and all other implications are true
+   DG -> Gd:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d| are equal
+     everything to the right of G is d^+ and
+     all other implications are true
+   CH -> Hc:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d| and
+     everything to the right of H is c^+ d^+ and
+     all other implications are true
+   BI -> Ib:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d| and
+     everything to the right of I is b^+ c^+ d^+ and
+     all other implications are true
+   AJ -> Ja:
+     By inductive hypothesis INV holds because applying this rule
+     means that |A & a|=|B & b|=|C & c| = |D & d| and
+     everything to the right of J is a^+ b^+ c^+ d^+ and
+     all other implications are true
+
+NOW FOR THE BIDIRECTIONAL PROOF
+
+Prove that L = L(anbncndn)
+
+Lemma 1: w ∈ L <-> w ∈ L(anbncndn)
+
+->:
+   Assume w ∈ L. This means that w = a^n b^n c^n d^n.
+   Since the invariants always hold, there is a derivation such that S generates n ABCD,
+   rearranges ABCDs to A^n B^n C^n D^n, and generates w.
+<-:
+   Assume w ∈ L(anbncndn). This means that anbncndn generated w.
+   Since invariants always hold, w = a^n b^n c^n d^n, thus, w ∈ L.
+
+Lemma 2: w ∉ L <-> w ∉ L(anbncndn)
+   CONTRAPOSITION WOOOOOOOO!
+|#
